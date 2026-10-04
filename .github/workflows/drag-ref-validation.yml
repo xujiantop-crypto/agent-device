@@ -18,6 +18,28 @@ jobs:
         run: git update-ref refs/remotes/origin/main 2212eacf5be976acc78378a7e65539be5fc81489
       - name: Build packages
         run: pnpm build
+      - name: Prove recovery warning regression
+        env:
+          WARNING_TEST_PATCH: ZGlmZiAtLWdpdCBhL3NyYy9kYWVtb24vaW50ZXJhY3Rpb24vaW50ZXJuYWwvX190ZXN0c19fL2ludGVyYWN0aW9uLWRpc3BhdGNoLWRpc2Nsb3N1cmUudGVzdC50cyBiL3NyYy9kYWVtb24vaW50ZXJhY3Rpb24vaW50ZXJuYWwvX190ZXN0c19fL2ludGVyYWN0aW9uLWRpc3BhdGNoLWRpc2Nsb3N1cmUudGVzdC50cwppbmRleCBiZTc0YjM1Li40YzNhMDE4IDEwMDY0NAotLS0gYS9zcmMvZGFlbW9uL2ludGVyYWN0aW9uL2ludGVybmFsL19fdGVzdHNfXy9pbnRlcmFjdGlvbi1kaXNwYXRjaC1kaXNjbG9zdXJlLnRlc3QudHMKKysrIGIvc3JjL2RhZW1vbi9pbnRlcmFjdGlvbi9pbnRlcm5hbC9fX3Rlc3RzX18vaW50ZXJhY3Rpb24tZGlzcGF0Y2gtZGlzY2xvc3VyZS50ZXN0LnRzCkBAIC0zMDgsNyArMzA4LDE0IEBAIGFzeW5jIGZ1bmN0aW9uIHJlZlJlZnVzZWRBZnRlckFuZHJvaWRSZWNvdmVyeShjb21tYW5kOiAncHJlc3MnIHwgJ2dlc3R1cmUnKTogUHJvCiAgIGFzc2VydC5lcXVhbCh0YXAubW9jay5jYWxscy5sZW5ndGgsIDEpOwogICBhc3NlcnQuZXF1YWwob3BlbkFwcC5tb2NrLmNhbGxzLmxlbmd0aCwgMSk7CiAgIGFzc2VydC5lcXVhbChtb2NrVGFwUG9pbnQubW9jay5jYWxscy5sZW5ndGgsIDApOwotICBpZiAoY29tbWFuZCA9PT0gJ2dlc3R1cmUnKSBhc3NlcnQuZXF1YWwoZ2VzdHVyZXMuYmluZERldmljZS5tb2NrLmNhbGxzLmxlbmd0aCwgMCk7CisgIGlmIChjb21tYW5kID09PSAnZ2VzdHVyZScpIHsKKyAgICBhc3NlcnQuZXF1YWwoZ2VzdHVyZXMuYmluZERldmljZS5tb2NrLmNhbGxzLmxlbmd0aCwgMCk7CisgICAgYXNzZXJ0LmVxdWFsKAorICAgICAgcmVzcG9uc2UuZXJyb3IuZGV0YWlscz8ud2FybmluZywKKyAgICAgICdSZWNvdmVyZWQgQW5kcm9pZCBhcHAgQU5SIGJlZm9yZSBnZXN0dXJlOiBjbG9zZWQgYW5kIHJlbGF1bmNoZWQgY29tLmV4YW1wbGUuYXBwLicsCisgICAgKTsKKyAgICBhc3NlcnQubWF0Y2gocmVzcG9uc2UuZXJyb3IuaGludCA/PyAnJywgL0NhcHR1cmUgYSBmcmVzaCBpbnRlcmFjdGl2ZSBzbmFwc2hvdC8pOworICB9CiAgIHRocm93IG5ldyBBcHBFcnJvcihyZXNwb25zZS5lcnJvci5jb2RlLCByZXNwb25zZS5lcnJvci5tZXNzYWdlLCByZXNwb25zZS5lcnJvci5kZXRhaWxzKTsKIH0KIAo=
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,base64,subprocess
+          subprocess.run(['git','apply','-'],input=base64.b64decode(os.environ['WARNING_TEST_PATCH']),check=True)
+          PY
+          set +e
+          pnpm exec vitest run --project unit-core src/daemon/interaction/internal/__tests__/interaction-dispatch-disclosure.test.ts > /tmp/warning-red.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/warning-red.log
+          git restore -- src/daemon/interaction/internal/__tests__/interaction-dispatch-disclosure.test.ts
+          test "$result" -ne 0
+          grep -Eq '1 failed.*16 passed' /tmp/warning-red.log
+      - name: Check out reviewed source head
+        run: |
+          git checkout 1d4bbd815bda4f3d50ba6422dfb800484dc99b71
+          test "$(git rev-parse HEAD)" = "1d4bbd815bda4f3d50ba6422dfb800484dc99b71"
+          pnpm build
       - name: Prove stale drag admission regression
         shell: bash
         run: |
@@ -43,8 +65,8 @@ jobs:
           from pathlib import Path
           p=Path('src/daemon/interaction/internal/interaction-gesture.ts')
           t=p.read_text()
-          assert t.count("if (readiness.status === 'recovered') throw error;") == 1
-          p.write_text(t.replace("if (readiness.status === 'recovered') throw error;", ''))
+          assert t.count("if (readiness.status === 'recovered') {\n      const failure = asAppError(error);") == 1
+          p.write_text(t.replace("if (readiness.status === 'recovered') {\n      const failure = asAppError(error);", "if (false) {\n      const failure = asAppError(error);"))
           PY
           set +e
           pnpm exec vitest run --project unit-core src/daemon/interaction/internal/__tests__/interaction-dispatch-disclosure.test.ts > /tmp/recovery-red.log 2>&1
