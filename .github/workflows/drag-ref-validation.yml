@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 874b65a6bfc0337568038b22ffe88194b4a6797f
+          ref: 958443b9316e76c88a488a38b96aa53f44b9be53
           fetch-depth: 0
       - uses: ./.github/actions/setup-node-pnpm
       - name: Pin upstream comparison baseline
