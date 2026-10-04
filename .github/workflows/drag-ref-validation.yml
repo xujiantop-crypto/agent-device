@@ -1,0 +1,68 @@
+name: Drag ref Linux validation
+on:
+  push:
+    branches: [test/drag-ref-linux-validation]
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 874b65a6bfc0337568038b22ffe88194b4a6797f
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Pin upstream comparison baseline
+        run: git update-ref refs/remotes/origin/main 2212eacf5be976acc78378a7e65539be5fc81489
+      - name: Build packages
+        run: pnpm build
+      - name: Prove stale drag admission regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/daemon/interaction/internal/interaction-gesture.ts')
+          t=p.read_text()
+          assert t.count('throw thrownBeforeDispatch(error);') == 1
+          p.write_text(t.replace('throw thrownBeforeDispatch(error);', 'throw error;'))
+          PY
+          set +e
+          pnpm exec vitest run --project unit-core src/daemon/interaction/internal/__tests__/interaction-dispatch-disclosure.test.ts > /tmp/drag-red.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/drag-red.log
+          git restore -- src/daemon/interaction/internal/interaction-gesture.ts
+          test "$result" -ne 0
+          grep -Eq '1 failed.*16 passed' /tmp/drag-red.log
+      - name: Prove Android recovery boundary
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('src/daemon/interaction/internal/interaction-gesture.ts')
+          t=p.read_text()
+          assert t.count("if (readiness.status === 'recovered') throw error;") == 1
+          p.write_text(t.replace("if (readiness.status === 'recovered') throw error;", ''))
+          PY
+          set +e
+          pnpm exec vitest run --project unit-core src/daemon/interaction/internal/__tests__/interaction-dispatch-disclosure.test.ts > /tmp/recovery-red.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/recovery-red.log
+          git restore -- src/daemon/interaction/internal/interaction-gesture.ts
+          test "$result" -ne 0
+          grep -Eq '1 failed.*16 passed' /tmp/recovery-red.log
+      - name: Regression suite on exact source head
+        run: pnpm exec vitest run --project unit-core src/daemon/interaction/internal/__tests__/interaction-dispatch-disclosure.test.ts
+      - name: Dependency impact report
+        run: pnpm depgraph affected src/daemon/interaction/internal/interaction-gesture.ts --json --limit 25
+      - name: Repository format
+        run: |
+          pnpm format
+          git diff --exit-code
+      - name: Affected gates on exact source head
+        run: pnpm check:affected --run
+      - name: Fallow changed-code audit
+        run: pnpm check:fallow --base origin/main
